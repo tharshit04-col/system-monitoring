@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>System Monitor</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
+  <style>
+    :root {
+      --primary-color: #4bc0c0;
+      --secondary-color: #36a2eb;
+      --danger-color: #ff6384;
+      --warning-color: #ffcd56;
+      --success-color: #4bc0c0;
+    }
+    
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #f8f9fa;
+      color: #333;
+    }
+
+    h1 {
+      margin-bottom: 20px;
+      color: #2c3e50;
+      text-align: center;
+    }
+
+    .dashboard-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .last-updated {
+      font-size: 14px;
+      color: #7f8c8d;
+    }
+
+    .tabs {
+      display: flex;
+      margin-bottom: 20px;
+      border-bottom: 1px solid #ddd;
+    }
+
+    .tab {
+      padding: 12px 24px;
+      cursor: pointer;
+      background: #f8f9fa;
+      border: 1px solid #ddd;
+      border-bottom: none;
+      border-radius: 5px 5px 0 0;
+      margin-right: 5px;
+      transition: all 0.3s ease;
+    }
+
+    .tab:hover {
+      background: #e9ecef;
+    }
+
+    .tab.active {
+      background: white;
+      border-top: 3px solid var(--primary-color);
+      font-weight: bold;
+      color: var(--primary-color);
+      position: relative;
+      top: 1px;
+    }
+
+    .tab-content {
+      display: none;
+      border: 1px solid #ddd;
+      border-top: none;
+      padding: 20px;
+      background: #fff;
+      border-radius: 0 0 5px 5px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+
+    .stat-card {
+      background: #fff;
+      padding: 15px;
+      border-radius: 8px;
+      text-align: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      border-left: 4px solid var(--primary-color);
+      transition: transform 0.2s;
+    }
+
+    .stat-card:hover {
+      transform: translateY(-3px);
+    }
+
+    .stat-card.cpu {
+      border-left-color: var(--secondary-color);
+    }
+
+    .stat-card.temp {
+      border-left-color: var(--danger-color);
+    }
+
+    .stat-card.memory {
+      border-left-color: var(--warning-color);
+    }
+
+    .stat-card.swap {
+      border-left-color: #9966cc;
+    }
+
+    .stat-label {
+      margin-bottom: 8px;
+      font-weight: 600;
+      color: #7f8c8d;
+      font-size: 14px;
+    }
+
+    .stat-value {
+      font-size: 24px;
+      font-weight: bold;
+      color: #2c3e50;
+    }
+
+    .chart-container {
+      position: relative;
+      height: 300px;
+      margin-bottom: 30px;
+      background: #fff;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    .chart-title {
+      margin-bottom: 15px;
+      font-weight: 600;
+      color: #2c3e50;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .chart-actions {
+      display: flex;
+      gap: 10px;
+    }
+
+    .chart-btn {
+      background: #f1f1f1;
+      border: none;
+      padding: 5px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: background 0.2s;
+    }
+
+    .chart-btn:hover {
+      background: #e1e1e1;
+    }
+
+    .bar-container {
+      margin: 15px 0;
+    }
+
+    .bar-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 5px;
+    }
+
+    .bar-label {
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .bar-value {
+      font-size: 14px;
+      font-weight: bold;
+    }
+
+    .bar {
+      height: 20px;
+      background: #e9ecef;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      height: 100%;
+      background: var(--primary-color);
+      width: 0%;
+      transition: width 0.5s ease;
+    }
+
+    .bar-fill.used {
+      background: var(--secondary-color);
+    }
+
+    .bar-fill.free {
+      background: var(--success-color);
+    }
+
+    .bar-fill.swap {
+      background: #9966cc;
+    }
+
+    .core-container {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 15px;
+      margin-top: 20px;
+    }
+
+    .core-card {
+      background: #fff;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      text-align: center;
+    }
+
+    .core-label {
+      font-weight: 600;
+      margin-bottom: 5px;
+      color: #7f8c8d;
+    }
+
+    .core-value {
+      font-size: 18px;
+      font-weight: bold;
+      color: #2c3e50;
+    }
+
+    .alert {
+      padding: 15px;
+      border-radius: 5px;
+      margin-bottom: 20px;
+      background: #fff3cd;
+      color: #856404;
+      border-left: 4px solid #ffeeba;
+    }
+
+    @media (max-width: 768px) {
+      .stats-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+      
+      .core-container {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .stats-grid {
+        grid-template-columns: 1fr;
+      }
+      
+      .tabs {
+        flex-wrap: wrap;
+      }
+      
+      .tab {
+        flex: 1;
+        text-align: center;
+        padding: 10px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="dashboard-header">
+    <h1>Real-Time System Monitor</h1>
+    <div class="last-updated" id="last-updated">Last updated: --</div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('cpu')">CPU</div>
+    <div class="tab" onclick="switchTab('memory')">Memory</div>
+    <div class="tab" onclick="switchTab('network')">Network</div>
+  </div>
+
+  <!-- CPU Tab -->
+  <div id="cpu" class="tab-content active">
+    <div class="stats-grid">
+      <div class="stat-card cpu">
+        <div class="stat-label">Current Usage</div>
+        <div class="stat-value" id="current-cpu">0%</div>
+      </div>
+      <div class="stat-card cpu">
+        <div class="stat-label">Average (1m)</div>
+        <div class="stat-value" id="avg-cpu">0%</div>
+      </div>
+      <div class="stat-card cpu">
+        <div class="stat-label">Peak Usage</div>
+        <div class="stat-value" id="peak-cpu">0%</div>
+      </div>
+      <div class="stat-card temp">
+        <div class="stat-label">Current Temp</div>
+        <div class="stat-value" id="current-temp">N/A °C</div>
+      </div>
+    </div>
+
+    <div class="chart-container">
+      <div class="chart-title">
+        CPU Usage History
+        <div class="chart-actions">
+          <button class="chart-btn" onclick="resetZoom('cpuChart')">Reset Zoom</button>
+        </div>
+      </div>
+      <canvas id="cpuChart"></canvas>
+    </div>
+
+    <div id="cpu-cores"></div>
+  </div>
+
+  <!-- Memory Tab -->
+  <div id="memory" class="tab-content">
+    <div class="stats-grid">
+      <div class="stat-card memory">
+        <div class="stat-label">Memory Used</div>
+        <div class="stat-value" id="mem-used">0 GB</div>
+      </div>
+      <div class="stat-card memory">
+        <div class="stat-label">Memory Free</div>
+        <div class="stat-value" id="mem-free">0 GB</div>
+      </div>
+      <div class="stat-card memory">
+        <div class="stat-label">Memory Total</div>
+        <div class="stat-value" id="mem-total">0 GB</div>
+      </div>
+      <div class="stat-card swap">
+        <div class="stat-label">Swap Used</div>
+        <div class="stat-value" id="swap-used">0 GB</div>
+      </div>
+    </div>
+
+    <div class="chart-container">
+      <div class="chart-title">
+        Memory Usage History
+        <div class="chart-actions">
+          <button class="chart-btn" onclick="resetZoom('memoryChart')">Reset Zoom</button>
+        </div>
+      </div>
+      <canvas id="memoryChart"></canvas>
+    </div>
+
+    <div id="memory-bars"></div>
+  </div>
+
+  <!-- Network Tab -->
+  <div id="network" class="tab-content">
+    <div class="alert">
+      Network monitoring requires selecting a network interface below.
+    </div>
+    
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Network Interface</div>
+        <select id="network-interface" class="stat-value" style="border: none; background: transparent; text-align: center; font-size: 18px;">
+          <option value="">Loading...</option>
+        </select>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Status</div>
+        <div class="stat-value" id="network-status">Offline</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Download (RX)</div>
+        <div class="stat-value" id="network-rx">0 B/s</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Upload (TX)</div>
+        <div class="stat-value" id="network-tx">0 B/s</div>
+      </div>
+    </div>
+
+    <div class="chart-container">
+      <div class="chart-title">
+        Network Traffic
+        <div class="chart-actions">
+          <button class="chart-btn" onclick="resetZoom('networkChart')">Reset Zoom</button>
+        </div>
+      </div>
+      <canvas id="networkChart"></canvas>
+    </div>
+  </div> 
+
+  <script>
+    // Initialize variables
+    const socket = io();
+    const historySize = 60;
+    let cpuHistory = Array(historySize).fill(0);
+    let memHistory = Array(historySize).fill(0);
+    let netRxHistory = Array(historySize).fill(0);
+    let netTxHistory = Array(historySize).fill(0);
+    let peakCpu = 0;
+    let peakMem = 0;
+    let selectedInterface = null;
+    let lastUpdateTime = null;
+
+    // Format bytes to human readable
+    function formatBytes(bytes, decimals = 2) {
+      if (bytes === 0) return '0 Bytes';
+      const k = 1024;
+      const dm = decimals < 0 ? 0 : decimals;
+      const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    }
+
+    // Format bytes/sec to human readable
+    function formatBytesPerSec(bytes, decimals = 2) {
+      return formatBytes(bytes, decimals) + '/s';
+    }
+
+    // Create chart function
+    function createChart(elementId, config) {
+      const ctx = document.getElementById(elementId).getContext('2d');
+      return new Chart(ctx, {
+        type: config.type || 'line',
+        data: {
+          labels: Array(historySize).fill(''),
+          datasets: config.datasets.map(dataset => ({
+            label: dataset.label,
+            data: Array(historySize).fill(0),
+            backgroundColor: dataset.backgroundColor || 'rgba(75, 192, 192, 0.2)',
+            borderColor: dataset.borderColor || 'rgba(75, 192, 192, 1)',
+            borderWidth: dataset.borderWidth || 1,
+            pointRadius: 0,
+            tension: 0.1,
+            fill: dataset.fill || false
+          }))
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: { duration: 0 },
+          scales: {
+            y: { 
+              beginAtZero: true,
+              title: { display: true, text: config.yTitle || 'Value' }
+            },
+            x: { 
+              title: { display: true, text: 'Last 60 seconds' },
+              grid: { display: false }
+            }
+          },
+          plugins: {
+            legend: { position: 'top' },
+            tooltip: { mode: 'index', intersect: false },
+            zoom: {
+              zoom: {
+                wheel: { enabled: true },
+                pinch: { enabled: true },
+                mode: 'xy',
+              },
+              pan: {
+                enabled: true,
+                mode: 'xy',
+              }
+            }
+          },
+          interaction: {
+            mode: 'nearest',
+            intersect: false
+          }
+        }
+      });
+    }
+
+    // Initialize charts
+    const cpuChart = createChart('cpuChart', {
+      type: 'line',
+      datasets: [{
+        label: 'CPU Usage (%)',
+        fill: true
+      }],
+      yTitle: 'Usage (%)'
+    });
+
+    const memoryChart = createChart('memoryChart', {
+      type: 'line',
+      datasets: [
+        {
+          label: 'Memory Used (GB)',
+          borderColor: 'rgba(54, 162, 235, 1)',
+          backgroundColor: 'rgba(54, 162, 235, 0.2)',
+          fill: true
+        },
+        {
+          label: 'Memory Available (GB)',
+          borderColor: 'rgba(75, 192, 192, 1)',
+          backgroundColor: 'rgba(75, 192, 192, 0.2)',
+          fill: false
+        }
+      ],
+      yTitle: 'GB'
+    });
+
+    const networkChart = createChart('networkChart', {
+      type: 'line',
+      datasets: [
+        {
+          label: 'Download (RX)',
+          borderColor: 'rgba(75, 192, 192, 1)',
+          backgroundColor: 'rgba(75, 192, 192, 0.2)',
+          fill: true
+        },
+        {
+          label: 'Upload (TX)',
+          borderColor: 'rgba(255, 99, 132, 1)',
+          backgroundColor: 'rgba(255, 99, 132, 0.2)',
+          fill: true
+        }
+      ],
+      yTitle: 'Bytes/sec'
+    });
+
+    // Reset zoom function
+    function resetZoom(chartId) {
+      const chart = window[chartId];
+      if (chart) {
+        chart.resetZoom();
+      }
+    }
+
+    // Tab switching
+    function switchTab(id) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      event.target.classList.add('active');
+      
+      // Resize charts when their tab becomes active
+      setTimeout(() => {
+        if (id === 'cpu') cpuChart.resize();
+        if (id === 'memory') memoryChart.resize();
+        if (id === 'network') networkChart.resize();
+      }, 100);
+    }
+
+    // Update last updated time
+    function updateLastUpdated() {
+      const now = new Date();
+      lastUpdateTime = now;
+      document.getElementById('last-updated').textContent = 
+        `Last updated: ${now.toLocaleTimeString()}`;
+    }
+
+    // Load network interfaces
+    function loadNetworkInterfaces() {
+      fetch('/interfaces')
+        .then(response => response.json())
+        .then(interfaces => {
+          const select = document.getElementById('network-interface');
+          select.innerHTML = '<option value="">Select interface</option>';
+          
+          interfaces.forEach(iface => {
+            const option = document.createElement('option');
+            option.value = iface;
+            option.textContent = iface;
+            select.appendChild(option);
+          });
+          
+          select.addEventListener('change', (e) => {
+            selectedInterface = e.target.value;
+            if (selectedInterface) {
+              socket.emit('setInterface', selectedInterface);
+            }
+          });
+        })
+        .catch(error => {
+          console.error('Error loading interfaces:', error);
+          document.getElementById('network-interface').innerHTML = 
+            '<option value="">Error loading interfaces</option>';
+        });
+    }
+
+    // Socket event listeners
+    socket.on('cpuData', ({ cpuLoad, cpuTemp }) => {
+      const usage = parseFloat(cpuLoad);
+      const temp = cpuTemp === 'N/A' ? null : parseFloat(cpuTemp);
+
+      // Update CPU history
+      cpuHistory.push(usage);
+      cpuHistory.shift();
+
+      // Update UI
+      document.getElementById('current-cpu').textContent = `${usage.toFixed(1)}%`;
+      document.getElementById('current-temp').textContent = temp !== null ? `${temp.toFixed(1)}°C` : 'N/A';
+
+      const avgUsage = cpuHistory.reduce((a, b) => a + b, 0) / historySize;
+      document.getElementById('avg-cpu').textContent = `${avgUsage.toFixed(1)}%`;
+
+      peakCpu = Math.max(peakCpu, usage);
+      document.getElementById('peak-cpu').textContent = `${peakCpu.toFixed(1)}%`;
+
+      // Update chart
+      cpuChart.data.datasets[0].data = cpuHistory;
+      cpuChart.update();
+      
+      updateLastUpdated();
+    });
+
+    socket.on('memData', (mem) => {
+      const usedGB = parseFloat(mem.used);
+      const freeGB = parseFloat(mem.free);
+      const totalGB = parseFloat(mem.total);
+      const availableGB = parseFloat(mem.available);
+      const swapUsedGB = parseFloat(mem.swapused);
+      const swapTotalGB = parseFloat(mem.swaptotal);
+
+      // Update memory history
+      memHistory.push(usedGB);
+      memHistory.shift();
+
+      // Update UI
+      document.getElementById('mem-used').textContent = `${usedGB.toFixed(2)} GB`;
+      document.getElementById('mem-free').textContent = `${freeGB.toFixed(2)} GB`;
+      document.getElementById('mem-total').textContent = `${totalGB.toFixed(2)} GB`;
+      document.getElementById('swap-used').textContent = `${swapUsedGB.toFixed(2)} GB`;
+
+      peakMem = Math.max(peakMem, usedGB);
+
+      // Update memory bars
+      const memContainer = document.getElementById('memory-bars');
+      memContainer.innerHTML = '';
+
+      const memoryBars = [
+        { label: 'Used Memory', value: usedGB, total: totalGB, class: 'used' },
+        { label: 'Free Memory', value: freeGB, total: totalGB, class: 'free' },
+        { label: 'Available Memory', value: availableGB, total: totalGB, class: 'free' },
+        { label: 'Swap Used', value: swapUsedGB, total: swapTotalGB, class: 'swap' }
+      ];
+
+      memoryBars.forEach(bar => {
+        if (bar.total > 0) {
+          const percent = (bar.value / bar.total) * 100;
+          const block = `
+            <div class="bar-container">
+              <div class="bar-header">
+                <div class="bar-label">${bar.label}</div>
+                <div class="bar-value">${bar.value.toFixed(2)} GB (${percent.toFixed(1)}%)</div>
+              </div>
+              <div class="bar">
+                <div class="bar-fill ${bar.class}" style="width: ${percent}%;"></div>
+              </div>
+            </div>
+          `;
+          memContainer.insertAdjacentHTML('beforeend', block);
+        }
+      });
+
+      // Update chart
+      memoryChart.data.datasets[0].data = memHistory;
+      memoryChart.data.datasets[1].data = Array(historySize).fill(availableGB);
+      memoryChart.update();
+      
+      updateLastUpdated();
+    });
+
+    socket.on('networkData', (data) => {
+      const rx = data.rx || 0;
+      const tx = data.tx || 0;
+      const online = data.online || false;
+
+      // Update network history
+      netRxHistory.push(rx);
+      netRxHistory.shift();
+      netTxHistory.push(tx);
+      netTxHistory.shift();
+
+      // Update UI
+      document.getElementById('network-rx').textContent = formatBytesPerSec(rx);
+      document.getElementById('network-tx').textContent = formatBytesPerSec(tx);
+      document.getElementById('network-status').textContent = online ? 'Online' : 'Offline';
+      document.getElementById('network-status').style.color = online ? 'green' : 'red';
+
+      // Update chart
+      networkChart.data.datasets[0].data = netRxHistory;
+      networkChart.data.datasets[1].data = netTxHistory;
+      networkChart.update();
+      
+      updateLastUpdated();
+    });
+
+    // Initialize
+    loadNetworkInterfaces();
+    updateLastUpdated();
+  </script>
+</body>
+</html>
